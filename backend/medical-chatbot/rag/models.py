@@ -1,10 +1,11 @@
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import Optional, List, Dict
 
 class ChatRequest(BaseModel):
     question: str
     user_type: str = "general"
     questionnaire_data: dict = None
+    user_id: Optional[str] = None
     chat_history: List[Dict[str, str]] = []
 
 class ChatResponse(BaseModel):

@@ -5,6 +5,8 @@ import '../widgets/questionnaire_card.dart';
 import '../widgets/gradient_button.dart';
 import '../models/chat_message.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
+
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -14,6 +16,7 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
+  String? _userId;
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
   final ApiService _apiService = ApiService();
@@ -207,6 +210,7 @@ class _ChatPageState extends State<ChatPage> {
       final response = await _apiService.sendChatMessage(
         question: text,
         userType: _isUnderTreatment ? 'treatment' : 'prevention',
+        userId: _userId,
       );
 
       setState(() {
@@ -232,10 +236,19 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    _loadUserId();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToBottom();
     });
   }
+
+  Future<void> _loadUserId() async {
+  final authService = AuthService();
+  final user = await authService.getCurrentUser();
+  setState(() {
+    _userId = user?['id'];
+  });
+}
 
   @override
   Widget build(BuildContext context) {

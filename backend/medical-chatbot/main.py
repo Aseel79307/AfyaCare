@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 # Import global state correctly
 from core.state import embedding_manager, initialization_status, validate_environment
 from core.pdf_processor import PDFProcessor
+from auth_routes import router as auth_router
 from rag.routes import router as rag_router
 
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +29,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(auth_router)
 
 app.include_router(rag_router)
 

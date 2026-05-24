@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../models/medication.dart';
 
 class ApiService {
   static const String baseUrl = 'http://10.0.2.2:8000';
@@ -65,6 +66,7 @@ class ApiService {
   Future<ChatResponse> sendChatMessage({
     required String question,
     required String userType,
+    String? userId,
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/chat'),
@@ -74,7 +76,7 @@ class ApiService {
         'Accept-Charset': 'utf-8',
       },
       encoding: Encoding.getByName('utf-8')!,
-      body: jsonEncode({'question': question, 'user_type': userType}),
+      body: jsonEncode({'question': question, 'user_type': userType, 'user_id': userId,}),
     );
 
     if (response.statusCode == 200) {
@@ -133,6 +135,100 @@ class ApiService {
       return false;
     }
   }
+  // ========== MEDICATION METHODS ==========
+
+// Add a new medication
+Future<Map<String, dynamic>?> addMedication({
+  required String userId,
+  required String name,
+  required String dosage,
+  required String frequency,
+  required List<String> timeOfDay,
+}) async {
+  try {
+    print('📤 Sending medication to backend...');
+    print('  userId: $userId');
+    print('  name: $name');
+    print('  timeOfDay: $timeOfDay');
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/medications'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'user_id': userId,
+        'name': name,
+        'dosage': dosage,
+        'frequency': frequency,
+        'time_of_day': timeOfDay,
+      }),
+    );
+
+    print('📥 Response status: ${response.statusCode}');
+    print('📥 Response body: ${response.body}');
+    
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final data = jsonDecode(response.body);
+      print('✅ Medication saved, returned data: $data');
+      return data;
+    }
+    
+    print('Add medication failed: ${response.statusCode} - ${response.body}');
+    return null;
+  } catch (e) {
+    print('Error adding medication: $e');
+    return null;
+  }
+}
+
+// Update medication status (taken/not taken)
+Future<bool> updateMedicationStatus({
+  required String medicationId,
+  required bool isTaken,
+}) async {
+  try {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/medications/$medicationId'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'is_taken': isTaken}),
+    );
+    
+    return response.statusCode == 200;
+  } catch (e) {
+    print('Error updating medication status: $e');
+    return false;
+  }
+}
+
+// Get all medications for a user
+Future<List<Medication>> getMedications(String userId) async {
+  try {
+    final response = await http.get(
+      Uri.parse('$baseUrl/medications?user_id=$userId'),
+    );
+    
+    if (response.statusCode == 200) {
+      final List data = jsonDecode(response.body);
+      return data.map((json) => Medication.fromJson(json)).toList();
+    }
+    return [];
+  } catch (e) {
+    print('Error loading medications: $e');
+    return [];
+  }
+}
+
+// Delete a medication
+Future<bool> deleteMedication(String medicationId) async {
+  try {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/medications/$medicationId'),
+    );
+    return response.statusCode == 200;
+  } catch (e) {
+    print('Error deleting medication: $e');
+    return false;
+  }
+}
 }
 
 class DailyReportResponse {
@@ -201,4 +297,6 @@ class ChatResponse {
       'user_type': userType,
     };
   }
+
+  
 }

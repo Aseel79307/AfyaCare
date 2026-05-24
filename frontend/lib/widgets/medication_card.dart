@@ -14,6 +14,13 @@ class MedicationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Safe time display
+    String timeString = '00:00';
+    try {
+      timeString = medication.formattedTime;
+    } catch (e) {
+      print('Error getting formattedTime: $e');
+    }
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -52,7 +59,7 @@ class MedicationCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  medication.formattedTime,
+                  timeString,
                   style: const TextStyle(color: AppTheme.textSecondary),
                 ),
               ],

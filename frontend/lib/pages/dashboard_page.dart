@@ -1,3 +1,4 @@
+import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
 import '../app/theme.dart';
 import '../widgets/medication_card.dart';
@@ -6,6 +7,8 @@ import 'add_medication_page.dart';
 import 'chat_page.dart';
 import '../models/medication.dart';
 import '../services/api_service.dart';
+import 'login_page.dart';
+
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -24,31 +27,148 @@ class DashboardPageState extends State<DashboardPage> {
   int _healthScore = 0;
   String _warningLevel = 'medium';
   String _recommendations = '';
+  String _userName = '';
 
   final ApiService _apiService = ApiService();
-
+  
   @override
   void initState() {
-    super.initState();
+  super.initState();
+  _checkLoginStatus();
+  _loadUserInfo();
+  _loadMedications();
   }
 
-  void addMedication(Medication medication) {
+  Future<void> _loadMedications() async {
+  try {
+    final authService = AuthService();
+    final user = await authService.getCurrentUser();
+    final userId = user?['id'];
+    print('🔍 Loading medications for user: $userId');
+
+    
+    if (userId != null) {
+      final medications = await _apiService.getMedications(userId);
+      print('📦 Got ${medications.length} medications from API');
+
+      if (mounted) {
+        setState(() {
+          _medications.clear();
+          _medications.addAll(medications);
+        });
+        print('✅ Loaded ${medications.length} medications');
+      }
+    }
+  } catch (e) {
+    print('Error loading medications: $e');
+  }
+}
+
+  Future<void> _checkLoginStatus() async {
+  final authService = AuthService();
+  final isLoggedIn = await authService.isLoggedIn();
+  if (!isLoggedIn && mounted) {
+    Navigator.pushReplacementNamed(context, '/login');
+  }
+}
+Future<void> _loadUserInfo() async {
+  final authService = AuthService();
+  final user = await authService.getCurrentUser();
+  if (user != null && mounted) {
     setState(() {
-      _medications.add(medication);
+      _userName = user['name'] ?? 'مستخدم';
     });
   }
+}
 
-  void _toggleMedicationStatus(String id) {
+ void addMedication(Medication medication) async {
+  try {
+        print('1. Starting addMedication');
+    // Show loading indicator
+        if (mounted) {
+          setState(() => _isLoading = true);
+    }
+    
+    print('2. Getting user');
+    // Get current user ID
+    final authService = AuthService();
+    final user = await authService.getCurrentUser();
+    final userId = user?['id'];
+    print('3. User ID: $userId');
+
+    
+    if (userId == null) {
+      throw Exception('User not logged in');
+    }
+    
+    print('4. Saving to backend');
+    // Save to Supabase via your backend
+    final result = await _apiService.addMedication(
+      userId: userId,
+      name: medication.name,
+      dosage: medication.dosage,
+      frequency: medication.frequency,
+      timeOfDay: [medication.formattedTime],
+    );
+    print('5. Result: $result');
+
+    
+    if (result != null) {
+      print('6. Adding to local list');
+      // Add to local list with the ID from database
+      if (mounted) {
+      setState(() {
+        _medications.add(medication.copyWith(id: result['id']));
+      });
+      }
+      
+      if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ Medication added successfully!')),
+      );
+    }
+    }
+  } catch (e) {
+    print('ERROR: $e');
+    if (mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('❌ Error: $e')),
+    );
+    }
+  } finally {
+    print('7. Finally block');
+    if (mounted) {
+    setState(() => _isLoading = false);
+  }
+  }
+}
+
+ void _toggleMedicationStatus(String id) async {
+  try {
+    final medication = _medications.firstWhere((med) => med.id == id);
+    final newStatus = !medication.isTaken;
+    
+    // Update in Supabase
+    await _apiService.updateMedicationStatus(
+      medicationId: id,
+      isTaken: newStatus,
+    );
+    
+    // Update local list
     setState(() {
       final index = _medications.indexWhere((med) => med.id == id);
       if (index != -1) {
         _medications[index] = _medications[index].copyWith(
-          isTaken: !_medications[index].isTaken,
+          isTaken: newStatus,
         );
       }
     });
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('❌ Error updating status: $e')),
+    );
   }
-
+}
   // دالة جديدة لحذف الدواء
   void _deleteMedication(String id) {
     showDialog(
@@ -143,8 +263,8 @@ class DashboardPageState extends State<DashboardPage> {
         medications: medicationsData,
         // التحويل هنا لتجنب خطأ Map<String, dynamic>
         questionnaireAnswers: Map<String, String>.from(answers),
-        userName: 'آدم',
-      );
+        userName: _userName,      
+        );
 
       // 3. تحديث الواجهة بالنتيجة
       setState(() {
@@ -444,7 +564,20 @@ class DashboardPageState extends State<DashboardPage> {
             icon: const Icon(Icons.notifications, color: Colors.white),
             onPressed: () {},
           ),
-        ],
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: () async {
+            final authService = AuthService();
+            await authService.signOut();
+              if (mounted) {
+               Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => LoginPage()),
+        (route) => false,
+      );
+    }
+  },
+),
+   ],
       ),
       body: SafeArea(
         child: Padding(
@@ -464,11 +597,11 @@ class DashboardPageState extends State<DashboardPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'مرحباً آدم 👋',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: AppTheme.primary,
-                        fontWeight: FontWeight.bold,
+                      Text(
+                       'مرحباً $_userName 👋',
+                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                       color: AppTheme.primary,
+                       fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 4),

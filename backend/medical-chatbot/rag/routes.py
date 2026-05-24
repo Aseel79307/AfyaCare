@@ -5,6 +5,8 @@ import requests
 import logging
 import json
 import re
+from typing import Optional
+from pydantic import BaseModel
 
 from core.state import initialization_status, embedding_manager, validate_environment
 from rag.models import (
@@ -141,6 +143,7 @@ async def analyze_questionnaire(request: QuestionnaireRequest):
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
+    logger.info(f"🔍 CHAT REQUEST: user_id={request.user_id}, question={request.question[:50]}")
     """الإجابة على الأسئلة الطبية باستخدام Agent"""
     start_time = time.time()
     
@@ -157,7 +160,29 @@ async def chat(request: ChatRequest):
             user_type=request.user_type,
             chat_history=chat_history
         )
-        
+
+        try:
+            from supabase_client import supabase
+            from datetime import datetime
+            
+            # Get user_id from request if available (you may need to add this to ChatRequest model)
+            user_id = getattr(request, 'user_id', None)
+            if user_id is None:
+                # Temporary: use a default or get from token
+                user_id = "anonymous"
+            
+            supabase.client.table("chat_history").insert({
+                "user_id": user_id,
+                "question": request.question,
+                "answer": answer[:1000],  # Limit length
+                "user_type": request.user_type,
+                "created_at": datetime.now().isoformat()
+            }).execute()
+            logger.info(f"✅ Chat saved to database for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to save chat to database: {e}")
+
+
         total_time = time.time() - start_time
         
         return ChatResponse(
@@ -225,3 +250,103 @@ async def suggest_medication_schedule(request: MedicationScheduleRequest):
     except Exception as e:
         logger.error(f"💥 خطأ غير متوقع: {str(e)}")
         raise HTTPException(status_code=500, detail=f"خطأ داخلي: {str(e)}")
+
+# ========== MEDICATION ENDPOINTS ==========
+
+class MedicationCreate(BaseModel):
+    user_id: str
+    name: str
+    dosage: str = ""
+    frequency: str = "daily"
+    time_of_day: list[str]
+
+class MedicationUpdate(BaseModel):
+    is_taken: Optional[bool] = None
+    name: Optional[str] = None
+    dosage: Optional[str] = None
+    frequency: Optional[str] = None
+
+@router.post("/medications")
+async def create_medication(medication: MedicationCreate):
+    """Create a new medication"""
+    try:
+        import uuid
+        from datetime import datetime
+        
+        medication_id = str(uuid.uuid4())
+        
+        # Get Supabase client from your supabase_client module
+        from supabase_client import supabase
+        
+        data = {
+            "id": medication_id,
+            "user_id": medication.user_id,
+            "name": medication.name,
+            "dosage": medication.dosage,
+            "frequency": medication.frequency,
+            "time": medication.time_of_day[0] if medication.time_of_day else "08:00",
+            "is_taken": False,
+            "created_at": datetime.now().isoformat()
+        }
+        
+        result = supabase.client.table("medications").insert(data).execute()
+        
+        if result.data:
+            return {"success": True, "id": medication_id, **result.data[0]}
+        return {"success": False, "error": "Failed to create medication"}
+    except Exception as e:
+        logger.error(f"Error creating medication: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/medications")
+async def get_medications(user_id: str):
+    """Get all medications for a user"""
+    try:
+        from supabase_client import supabase
+        
+        result = supabase.client.table("medications")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .order("created_at", desc=False)\
+            .execute()
+        
+        return result.data if result.data else []
+    except Exception as e:
+        logger.error(f"Error getting medications: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.patch("/medications/{medication_id}")
+async def update_medication(medication_id: str, update: MedicationUpdate):
+    """Update a medication (e.g., toggle is_taken)"""
+    try:
+        from supabase_client import supabase
+        
+        update_data = {k: v for k, v in update.dict().items() if v is not None}
+        
+        result = supabase.client.table("medications")\
+            .update(update_data)\
+            .eq("id", medication_id)\
+            .execute()
+        
+        if result.data:
+            return {"success": True, **result.data[0]}
+        return {"success": False, "error": "Medication not found"}
+    except Exception as e:
+        logger.error(f"Error updating medication: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/medications/{medication_id}")
+async def delete_medication(medication_id: str):
+    """Delete a medication"""
+    try:
+        from supabase_client import supabase
+        
+        result = supabase.client.table("medications")\
+            .delete()\
+            .eq("id", medication_id)\
+            .execute()
+        
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error deleting medication: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
